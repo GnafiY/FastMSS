@@ -154,7 +154,6 @@ def main(cfg: DictConfig) -> None:
         return Path(path).exists()
 
     logger.info(f"data_dir={data_dir}  rir_dir={rir_dir}  output_dir={cfg.output_dir}")
-
     # ------------------------------------------------------------------ #
     # Stage 1: Load source CutSet  (-> data_dir)
     # ------------------------------------------------------------------ #
@@ -233,6 +232,8 @@ def main(cfg: DictConfig) -> None:
     if cfg.stage <= 2 and cfg.add_noise:
         if cfg.noise_folders is not None:
             logger.info("Parsing background noise files.")
+            if not isinstance(cfg.noise_folders, list):
+                cfg.noise_folders = [cfg.noise_folders]
             noise_files = []
             for c_folder in cfg.noise_folders:
                 for c_ext in [".wav", ".flac", ".mp3"]:
@@ -320,14 +321,11 @@ def main(cfg: DictConfig) -> None:
     if cfg.stage <= 4 and _is_done(Path(cfg.output_dir) / "manifests" / ".done"):
         logger.info("Stage 4 already done, skipping.")
     elif cfg.stage <= 4:
-        try:
-            all_cuts
-        except NameError:
-            logger.info("Loading source CutSet")
-            all_cuts = lhotse.load_manifest(
-                os.path.join(data_dir, "manifests", "all_cuts.jsonl.gz")
-            )
-            logger.info("Source CutSet loaded")
+        logger.info("Loading source CutSet")
+        all_cuts = lhotse.load_manifest(
+            os.path.join(data_dir, "manifests", "all_cuts.jsonl.gz")
+        )
+        logger.info("Source CutSet loaded")
 
         if cfg.add_noise and cfg.noise_folders is not None:
             out_file = os.path.join(cfg.output_dir, "manifests", "noise_files.txt")
@@ -411,19 +409,15 @@ def main(cfg: DictConfig) -> None:
         else:
             manifest_dir = Path(cfg.output_dir).absolute() / "manifests"
 
-            try:
-                recordings
-                supervisions
-            except NameError:
-                logger.info("Loading simulated manifests from disk")
-                recordings = lhotse.load_manifest(
-                    manifest_dir
-                    / f"synth-{cfg.manifest_prefix}-train-recordings.jsonl.gz"
-                )
-                supervisions = lhotse.load_manifest(
-                    manifest_dir
-                    / f"synth-{cfg.manifest_prefix}-train-supervisions.jsonl.gz"
-                )
+            logger.info("Loading simulated manifests from disk")
+            recordings = lhotse.load_manifest(
+                manifest_dir
+                / f"synth-{cfg.manifest_prefix}-train-recordings.jsonl.gz"
+            )
+            supervisions = lhotse.load_manifest(
+                manifest_dir
+                / f"synth-{cfg.manifest_prefix}-train-supervisions.jsonl.gz"
+            )
 
             cutset = CutSet.from_manifests(
                 recordings=recordings, supervisions=supervisions
@@ -504,7 +498,7 @@ def main(cfg: DictConfig) -> None:
                     rec2sups[sup.recording_id].append(sup)
 
                 nemo_manifest_path = (
-                    Path(cfg.output_dir).absolute() / "nemo_manifest.json"
+                    Path(cfg.output_dir).absolute() / "nemo_manifest.jsonl"
                 )
                 n_written = 0
                 with open(nemo_manifest_path, "w") as f_out:

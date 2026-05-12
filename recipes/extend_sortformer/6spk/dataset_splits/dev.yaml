@@ -1,0 +1,4 @@
+# @package _global_
+dset_splits:
+  - cutset_dev-clean
+  - cutset_dev-other

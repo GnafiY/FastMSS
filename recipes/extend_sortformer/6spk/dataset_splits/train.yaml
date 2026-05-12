@@ -1,0 +1,5 @@
+# @package _global_
+dset_splits:
+  - cutset_train-clean-100
+  - cutset_train-clean-360
+  - cutset_train-other-500

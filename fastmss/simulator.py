@@ -485,7 +485,13 @@ class ConversationalMeetingSimulator:
             self.cfg = SimpleNamespace(**OmegaConf.to_container(self.cfg, resolve=True))
 
         min_spk, max_spk = self.cfg.min_max_spk
-        n_speakers = np.random.randint(min_spk, max_spk + 1)
+        if getattr(self.cfg, "spk_weights", None) is not None:
+            n_speakers_candidates = list(range(min_spk, max_spk + 1))
+            weights = np.array(self.cfg.spk_weights, dtype=np.float64)
+            weights = weights / weights.sum()
+            n_speakers = int(np.random.choice(n_speakers_candidates, p=weights))
+        else:
+            n_speakers = np.random.randint(min_spk, max_spk + 1)
         target_dur = self.cfg.duration
 
         sampled_spk = np.random.choice(self.speakers, n_speakers, replace=False)
@@ -523,7 +529,10 @@ class ConversationalMeetingSimulator:
                 # Different speaker
                 if prev_speaker is not None:
                     available_speakers = [s for s in sampled_spk if s != prev_speaker]
-                    current_speaker = np.random.choice(available_speakers)
+                    if available_speakers:
+                        current_speaker = np.random.choice(available_speakers)
+                    else:
+                        current_speaker = prev_speaker
                 else:
                     current_speaker = np.random.choice(sampled_spk)
 
