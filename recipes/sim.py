@@ -75,10 +75,12 @@ def merge_rttm_entries(entries, gap_threshold=0.2):
 
 
 def discard(x, duration):
-    info = sf.SoundFile(x)
-    if (len(info) / info.samplerate) > duration:
-        return x
-    else:
+    try:
+        info = sf.SoundFile(x)
+        dur = len(info) / info.samplerate
+        info.close()
+        return x if dur > duration else None
+    except Exception:
         return None
 
 
@@ -236,11 +238,18 @@ def main(cfg: DictConfig) -> None:
                 cfg.noise_folders = [cfg.noise_folders]
             noise_files = []
             for c_folder in cfg.noise_folders:
-                for c_ext in [".wav", ".flac", ".mp3"]:
-                    tmp = glob.glob(
-                        os.path.join(c_folder, "**/*" + c_ext), recursive=True
-                    )
-                    noise_files.extend(tmp)
+                if not os.path.exists(c_folder):
+                    logger.warning(f"Noise path not found: {c_folder}")
+                    continue
+                if os.path.isdir(c_folder):
+                    for c_ext in [".wav", ".flac", ".mp3"]:
+                        tmp = glob.glob(
+                            os.path.join(c_folder, "**/*" + c_ext), recursive=True
+                        )
+                        noise_files.extend(tmp)
+                else:
+                    with open(c_folder, "r") as f:
+                        noise_files.extend([line.strip() for line in f if line.strip()])
 
             # Apply regex filter if specified
             if (
@@ -258,36 +267,64 @@ def main(cfg: DictConfig) -> None:
                     f"kept {len(noise_files)} files, filtered out {filtered_count} files."
                 )
 
-            worker = partial(discard, duration=cfg.filter_noise_len)
-            # filter noise that are too short
-            filtered = []
-            for n in tqdm(
-                parallel_map(worker, noise_files, num_jobs=cfg.n_jobs),
-                total=len(noise_files),
-                desc="Parsing noise files.",
-            ):
-                filtered.append(n)
-
-            filtered = [x for x in filtered if x is not None]
-            diff = len(noise_files) - len(filtered)
-            logger.info(
-                f"Discarded {diff} noise files as they were shorter than {cfg.filter_noise_len}. Now {len(filtered)}, before {len(noise_files)}."
-            )
-            noise_files = filtered
-
-            assert len(noise_files) > 0, "No noise files found, wrong path?"
-            Path(cfg.output_dir, "manifests").mkdir(parents=True, exist_ok=True)
             out_file = os.path.join(cfg.output_dir, "manifests", "noise_files.txt")
-            with open(out_file, "w") as f:
-                f.writelines([str(x) + "\n" for x in noise_files])
-            logger.info(f"Noise files paths saved in {out_file}")
+            Path(cfg.output_dir, "manifests").mkdir(parents=True, exist_ok=True)
+            if os.path.exists(out_file):
+                logger.info(f"Loading cached noise file list from {out_file}")
+                with open(out_file, "r") as f:
+                    noise_files = [line.strip() for line in f if line.strip()]
+                logger.info(f"Loaded {len(noise_files)} noise files from cache, skipping filter.")
+            else:
+                worker = partial(discard, duration=cfg.filter_noise_len)
+                # Sequential filtering to avoid NFS-hang of entire pool on bad files
+                filtered = []
+                for n in tqdm(
+                    parallel_map(worker, noise_files, num_jobs=cfg.n_jobs),
+                    total=len(noise_files),
+                    desc="Parsing noise files.",
+                ):
+                    filtered.append(n)
+
+                filtered = [x for x in filtered if x is not None]
+                diff = len(noise_files) - len(filtered)
+                logger.info(
+                    f"Discarded {diff} noise files as they were shorter than {cfg.filter_noise_len}. Now {len(filtered)}, before {len(noise_files)}."
+                )
+                noise_files = filtered
+                with open(out_file, "w") as f:
+                    f.writelines([str(x) + "\n" for x in noise_files])
+                logger.info(f"Noise files paths saved in {out_file}")
 
     # ------------------------------------------------------------------ #
-    # Stage 3: RIR simulation  (-> rir_dir)
+    # Stage 3: RIR preparation  (-> rir_dir)
     # ------------------------------------------------------------------ #
     if cfg.stage <= 3 and cfg.reverberate:
         if _is_done(Path(rir_dir) / ".done"):
             logger.info("Stage 3 already done (found .done in rir_dir), skipping.")
+        elif cfg.get("rir_list"):
+            logger.info(f"Loading RIRs from list file: {cfg.rir_list}")
+            all_rooms = []
+            with open(cfg.rir_list, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if not os.path.exists(line):
+                        logger.warning(f"RIR file not found, skipping: {line}")
+                        continue
+                    all_rooms.append([line])
+            if not all_rooms:
+                raise RuntimeError(
+                    f"No valid RIR files found in rir_list: {cfg.rir_list}"
+                )
+            logger.info(
+                f"Loaded {len(all_rooms)} RIR files from rir_list."
+            )
+            Path(rir_dir).mkdir(parents=True, exist_ok=True)
+            out_file = os.path.join(rir_dir, "all_rooms.json")
+            with open(out_file, "w") as f:
+                json.dump(all_rooms, f, indent=4)
+            _mark_done(Path(rir_dir) / ".done")
         else:
             logger.info("Simulating RIRs using Pyroomacoustics")
 

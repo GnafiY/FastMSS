@@ -14,23 +14,22 @@ hydra:
   run:
     dir: ${output_dir}
 
+defaults:
+  - dataset_splits: null  # required — set via CLI; selects a profile with specific parameters for 6 speakers (e.g., meeting duration, number of meetings, etc.)
+
 # ============================================================
 # Meeting parameters
 # ============================================================
-n_meetings: 1000
-duration: 60
-min_max_spk: [2, 4]
-max_concurrent_speakers: 4
+n_meetings: null  # required — set via CLI
+duration: 90
+min_max_spk: [1, 6]
+max_concurrent_speakers: 2
 
 # ============================================================
 # Source data
 # ============================================================
 manifest_dir: null  # required — set via CLI
 manifest_prefix: librispeech
-dset_splits:
-  - cutset_train-clean-100
-  - cutset_train-clean-360
-  - cutset_train-other-500
 exclude_speakers: null
 split_fa_factor: 0.2
 max_utt_duration: 20
@@ -47,23 +46,23 @@ rel_gain: [-12, +5]
 # ============================================================
 # Noise augmentation
 # ============================================================
-add_noise: false
+add_noise: true
 noise_folders: null
 noise_rel_gain: [-20, -3]
-noise_probability_global: 0.5
+noise_probability_global: 1.0 # 0.5
 multi_noise_sampling: true
 filter_noise_len: 2.0
 
 # ============================================================
 # Reverberation (RIR)
 # ============================================================
-reverberate: false
-reverb_prob: 0.5
+reverberate: true
+reverb_prob: 1.0 # 0.5
 n_rirs: 5000
 n_pos_rirs: 50
-rt60: [0.1, 0.7]
-room_sz: [5, 10]
-room_ceiling: [3, 5]
+rt60: [0.3, 1.5]        # [0.1, 0.7]
+room_sz: [3, 15]        # [5, 10]
+room_ceiling: [2.5, 6]  # [3, 5]
 delta_dist: 0.5
 use_rand_ism: false
 rand_disp: 0.0
@@ -84,11 +83,16 @@ use_fir: false
 # ============================================================
 # Turn-taking (HMM)
 # ============================================================
-use_markov: false
+# use_markov: false
+# hmm_fit_transitions_to: null
+# hmm_params:
+#   p_ind: [0.25, 0.25, 0.25, 0.25]
+# boost_overlap_factor: null
+use_markov: true
 hmm_fit_transitions_to: null
-hmm_params:
-  p_ind: [0.25, 0.25, 0.25, 0.25]
 boost_overlap_factor: null
+hmm_params:
+    p_ind: null
 
 # ============================================================
 # Output options
@@ -96,5 +100,5 @@ boost_overlap_factor: null
 save_cutset: true
 save_spk: false
 save_anechoic: false
-save_rttm: false
-save_nemo_manifest: false
+save_rttm: true
+save_nemo_manifest: true

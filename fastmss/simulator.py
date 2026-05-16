@@ -638,47 +638,53 @@ class ConversationalMeetingSimulator:
 
                 c_rir, fs = sf.read(c_rir_file)
                 assert fs == self.cfg.samplerate
-                # load anechoic rir too
-                c_rir_anechoic = (
+
+                # load anechoic rir (may not exist for pre-existing external RIRs)
+                c_rir_anechoic_path = (
                     str(Path(c_rir_file).parent / Path(c_rir_file).stem)
                     + "-anechoic.flac"
                 )
-                c_rir_anechoic, fs = sf.read(c_rir_anechoic)
-                assert fs == self.cfg.samplerate
+                has_anechoic = os.path.exists(c_rir_anechoic_path)
+                if has_anechoic:
+                    c_rir_anechoic, fs = sf.read(c_rir_anechoic_path)
+                    assert fs == self.cfg.samplerate
 
-                # Find direct sound (peak) and trim RIRs to start there
+                # Find direct sound (peak) and trim RIR to start there
                 # This removes pre-delay and maintains time alignment
                 direct_idx = np.argmax(np.abs(c_rir))
                 c_rir = c_rir[direct_idx:]
 
-                direct_idx_anechoic = np.argmax(np.abs(c_rir_anechoic))
-                c_rir_anechoic = c_rir_anechoic[direct_idx_anechoic:]
+                if has_anechoic:
+                    direct_idx_anechoic = np.argmax(np.abs(c_rir_anechoic))
+                    c_rir_anechoic = c_rir_anechoic[direct_idx_anechoic:]
 
-                # Now convolve with mode="full" to preserve reverb tail
-                c_audio_anechoic = convolve(
-                    c_audio, c_rir_anechoic[None, :], mode="full"
-                )
+                # Convolve with mode="full" to preserve reverb tail
+                if has_anechoic:
+                    c_audio_anechoic = convolve(
+                        c_audio, c_rir_anechoic[None, :], mode="full"
+                    )
 
                 if c_rir.ndim == 1:
                     c_rir = c_rir[:, np.newaxis]
                 c_audio = convolve(c_audio, c_rir.T, mode="full")
 
                 # Ensure anechoic matches reverberant length
-                if c_audio_anechoic.shape[-1] < c_audio.shape[-1]:
-                    c_audio_anechoic = np.pad(
-                        c_audio_anechoic,
-                        ((0, 0), (0, c_audio.shape[-1] - c_audio_anechoic.shape[-1])),
-                        mode="constant",
-                    )
-                elif c_audio_anechoic.shape[-1] > c_audio.shape[-1]:
-                    c_audio_anechoic = c_audio_anechoic[:, : c_audio.shape[-1]]
+                if has_anechoic:
+                    if c_audio_anechoic.shape[-1] < c_audio.shape[-1]:
+                        c_audio_anechoic = np.pad(
+                            c_audio_anechoic,
+                            ((0, 0), (0, c_audio.shape[-1] - c_audio_anechoic.shape[-1])),
+                            mode="constant",
+                        )
+                    elif c_audio_anechoic.shape[-1] > c_audio.shape[-1]:
+                        c_audio_anechoic = c_audio_anechoic[:, : c_audio.shape[-1]]
 
             else:
                 assert self.cfg.save_anechoic == False
             # gain adjust
             c_audio, c_gain = self.normalize_to(c_audio, c_speech_lvl)
 
-            if do_reverb:
+            if do_reverb and has_anechoic:
                 c_audio_anechoic = c_gain * c_audio_anechoic
 
             offset = int(offset * self.cfg.samplerate)
@@ -710,7 +716,7 @@ class ConversationalMeetingSimulator:
                 spk2audio[c_spk][:, offset : offset + c_audio.shape[-1]] += c_audio[0][
                     None, :
                 ]
-                if self.cfg.save_anechoic:
+                if self.cfg.save_anechoic and has_anechoic:
                     spk2audio_anechoic[c_spk][
                         :, offset : offset + c_audio_anechoic.shape[-1]
                     ] += c_audio_anechoic
@@ -737,7 +743,7 @@ class ConversationalMeetingSimulator:
                 for k in spk2audio.keys():
                     spk2audio[k] = spk2audio[k] * gain_f
 
-                if self.cfg.save_anechoic:
+                if self.cfg.save_anechoic and has_anechoic:
                     for k in spk2audio_anechoic.keys():
                         spk2audio_anechoic[k] = spk2audio_anechoic[k] * gain_f
 
@@ -757,7 +763,7 @@ class ConversationalMeetingSimulator:
                     spk2audio[k].T,
                     self.cfg.samplerate,
                 )
-            if self.cfg.save_anechoic:
+            if self.cfg.save_anechoic and has_anechoic:
                 for k in spk2audio_anechoic:
                     sf.write(
                         os.path.join(

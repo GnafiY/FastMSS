@@ -1,3 +1,14 @@
+# v1.1 — Mitigates finetuning degradation on real meeting data (AMI/Candor/Fisher/MLC)
+#
+# Changes from v1:
+#   1. Acoustic: reverb_prob & noise_prob 1.0 → 0.5 (half meetings clean)
+#                 rt60 [0.3,1.5] → [0.1,0.7], room_sz [3,15] → [3,8], ceiling [2.5,6] → [2.5,4.5]
+#   2. Gain:     base_gain [-35,-8] → [-28,-10], rel_gain [-12,+5] → [-8,+4]
+#   3. Variety:  speed_perturb enabled + FIR highpass (more data diversity, better generalization)
+#   4. Spk dist: min_max_spk [1,6] → [2,6] (no wasted 1-spk meetings), weighted toward 2–4 spk
+#   5. Pause:    split_fa_factor 0.2 → 0.15 (more natural connected speech segmentation)
+#   6. Overlap:  max_concurrent_speakers 2 → null (disable hard constraint, let HMM drive turn-taking)
+
 # ============================================================
 # General
 # ============================================================
@@ -9,20 +20,21 @@ seed: null
 output_dir: null   # required — set via CLI
 data_dir: null     # shared dataset prep dir (stage 1); falls back to output_dir if null
 rir_dir: null      # shared RIR dir (stage 3); falls back to output_dir if null
+rir_list: null     # path to a text file with absolute RIR audio paths (one per line); overrides RIR generation
 hydra:
   run:
     dir: ${output_dir}
 
 defaults:
-  - dataset_splits: null  # required — set via CLI; selects a profile with specific parameters for 6 speakers (e.g., meeting duration, number of meetings, etc.)
+  - dataset_splits: null  # required — set via CLI
 
 # ============================================================
 # Meeting parameters
 # ============================================================
 n_meetings: null  # required — set via CLI
 duration: 90
-min_max_spk: [1, 6]
-max_concurrent_speakers: 2
+min_max_spk: [2, 6]              # v1: [1, 6] — drop 1-spk meetings (no diarization value)
+max_concurrent_speakers: null    # v1: 2 — let HMM control overlap naturally; Sortformer heads handle all
 
 # ============================================================
 # Source data
@@ -30,7 +42,7 @@ max_concurrent_speakers: 2
 manifest_dir: null  # required — set via CLI
 manifest_prefix: librispeech
 exclude_speakers: null
-split_fa_factor: 0.2
+split_fa_factor: 0.15             # v1: 0.2 — shorter pause threshold for more connected speech
 max_utt_duration: 20
 min_utt_duration: 0.0
 min_spk_utt: 5
@@ -39,8 +51,8 @@ drop_without_align: true
 # ============================================================
 # Gain
 # ============================================================
-base_gain: [-35, -8]
-rel_gain: [-12, +5]
+base_gain: [-28, -10]             # v1: [-35, -8] — tighter range avoids near-inaudible quiet speakers
+rel_gain: [-8, +4]                # v1: [-12, +5] — narrower inter-speaker level spread
 
 # ============================================================
 # Noise augmentation
@@ -48,7 +60,7 @@ rel_gain: [-12, +5]
 add_noise: true
 noise_folders: null
 noise_rel_gain: [-20, -3]
-noise_probability_global: 1.0 # 0.5
+noise_probability_global: 0.5     # v1: 1.0 — half meetings noise-free, matching paper defaults
 multi_noise_sampling: true
 filter_noise_len: 2.0
 
@@ -56,12 +68,12 @@ filter_noise_len: 2.0
 # Reverberation (RIR)
 # ============================================================
 reverberate: true
-reverb_prob: 1.0 # 0.5
+reverb_prob: 0.5                  # v1: 1.0 — half meetings anechoic; model keeps clean-room capability
 n_rirs: 5000
 n_pos_rirs: 50
-rt60: [0.3, 1.5]        # [0.1, 0.7]
-room_sz: [3, 15]        # [5, 10]
-room_ceiling: [2.5, 6]  # [3, 5]
+rt60: [0.1, 0.7]                  # v1: [0.3, 1.5] — meeting-room acoustics, not cathedral
+room_sz: [3, 8]                   # v1: [3, 15] — typical meeting rooms, not auditoriums
+room_ceiling: [2.5, 4.5]          # v1: [2.5, 6] — typical ceiling heights
 delta_dist: 0.5
 use_rand_ism: false
 rand_disp: 0.0
@@ -82,11 +94,6 @@ use_fir: false
 # ============================================================
 # Turn-taking (HMM)
 # ============================================================
-# use_markov: false
-# hmm_fit_transitions_to: null
-# hmm_params:
-#   p_ind: [0.25, 0.25, 0.25, 0.25]
-# boost_overlap_factor: null
 use_markov: true
 hmm_fit_transitions_to: null
 boost_overlap_factor: null
